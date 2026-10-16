@@ -1,11 +1,11 @@
 'use strict';
 
 /**
- * Every response is { success, message, data } (or "errors" on 422),
+ * Legacy responses use { success, message, data } (or "errors" on 422),
  * matching the shape the frontend's RTK Query layer already expects
  * (`transformResponse: (response) => response.data` in
- * src/redux/housebank.ts) — so auth/signin, auth/signup and
- * auth/logout keep working without touching the frontend.
+ * src/redux/housebank.ts). contractError provides the categorized
+ * failure shape for endpoints adopting the shared error contract.
  */
 function success(res, data = null, message = 'OK', status = 200) {
   return res.status(status).json({ success: true, message, data });
@@ -21,10 +21,15 @@ function error(res, message, status = 400, errors = null) {
   return res.status(status).json(payload);
 }
 
+function contractError(res, category, message, status, fields = null) {
+  return res.status(status).json({ success: false, category, message, fields });
+}
+
 module.exports = {
   success,
   created,
   error,
+  contractError,
   unauthorized: (res, message = 'Unauthorized.') => error(res, message, 401),
   forbidden: (res, message = 'Forbidden.') => error(res, message, 403),
   notFound: (res, message = 'Not found.') => error(res, message, 404),

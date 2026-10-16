@@ -88,13 +88,14 @@ async function reset(key) {
  * Express middleware factory: enforce a limit keyed by a function of the
  * request (usually IP, sometimes IP+account), short-circuiting with 429.
  */
-function enforce(keyFn, maxAttempts, windowSeconds, message) {
+function enforce(keyFn, maxAttempts, windowSeconds, message, onLimit) {
   return async (req, res, next) => {
     try {
       const key = keyFn(req);
       const allowed = await attempt(key, maxAttempts, windowSeconds);
       if (!allowed) {
         logger.security('Rate limit exceeded', { key });
+        if (onLimit) return onLimit(res, message);
         return response.tooManyRequests(res, message);
       }
       next();

@@ -44,7 +44,13 @@ async function issueTokens(user, req) {
  */
 router.post(
   '/signup',
-  enforce((req) => `signup:${req.ip}`, 100, 3600, 'Too many signup attempts from this network. Please try again later.'),
+  enforce(
+    (req) => `signup:${req.ip}`,
+    100,
+    3600,
+    'Too many signup attempts from this network. Please try again later.',
+    (res, message) => response.contractError(res, 'rate_limit', message, 429)
+  ),
   upload.fields([{ name: 'idFile', maxCount: 1 }, { name: 'cacFile', maxCount: 1 }]),
   wrap(async (req, res) => {
     const role = req.body.role;
@@ -58,14 +64,15 @@ router.post(
     if (role === 'customer' || role === 'agent') v.required('fullName', 'Full name');
     if (role === 'company') v.required('companyName').required('companyAddress').required('cacNumber');
 
-    if (v.fails()) return response.validationError(res, v.errors());
+    if (v.fails()) return response.contractError(res, 'validation', 'Validation failed.', 400, v.errors());
     const data = v.validated();
 
-    if (await User.findByEmail(data.email)) {
-      return response.validationError(res, { email: ['An account with this email already exists.'] });
-    }
-    if (await User.findByPhone(data.phone)) {
-      return response.validationError(res, { phone: ['An account with this phone number already exists.'] });
+    const [existingEmail, existingPhone] = await Promise.all([
+      User.findByEmail(data.email),
+      User.findByPhone(data.phone),
+    ]);
+    if (existingEmail || existingPhone) {
+      return response.contractError(res, 'conflict', 'An account already exists for that email.', 409);
     }
 
     // "Every agent must work for a company" (Joan, Sep 2026) -- there is
@@ -77,21 +84,22 @@ router.post(
     if (role === 'agent') {
       pendingInvite = await CompanyAgentInvite.findPendingByEmail(data.email);
       if (!pendingInvite) {
-        return response.validationError(res, {
-          email: [
-            'No company has invited this email to join as an agent yet. Ask the company to add your email to their roster first, then sign up again with the same email.',
-          ],
-        });
+        return response.contractError(
+          res,
+          'auth',
+          'No company has invited this email to join as an agent yet. Ask the company to add your email to their roster first, then sign up again with the same email.',
+          403
+        );
       }
     }
 
     const idFile = req.files && req.files.idFile && req.files.idFile[0];
     const cacFile = req.files && req.files.cacFile && req.files.cacFile[0];
     if (role === 'agent' && !idFile) {
-      return response.validationError(res, { idFile: ['A valid government-issued ID is required.'] });
+      return response.contractError(res, 'validation', 'Validation failed.', 400, { idFile: ['A valid government-issued ID is required.'] });
     }
     if (role === 'company' && !cacFile) {
-      return response.validationError(res, { cacFile: ['A CAC registration certificate is required.'] });
+      return response.contractError(res, 'validation', 'Validation failed.', 400, { cacFile: ['A CAC registration certificate is required.'] });
     }
 
     // Store documents BEFORE opening the transaction (matches the PHP
@@ -145,20 +153,20 @@ router.post(
             userId,
             email: data.email,
             cleanupError: cleanupErr.message,
+            cleanupStack: cleanupErr.stack,
           });
         }
       }
-      logger.error('Signup failed and user record was rolled back', {
+      logger.error('Signup operation failed', {
         userId,
-        email: data.email,
         role,
         error: err && err.message ? err.message : String(err),
+        stack: err && err.stack,
       });
-      return response.validationError(
-        res,
-        { _: ['We could not complete your signup because the verification email could not be sent. Please try again.'] },
-        'Signup could not be completed.'
-      );
+      if (err && err.code === 'ER_DUP_ENTRY') {
+        return response.contractError(res, 'conflict', 'An account already exists for that email.', 409);
+      }
+      return response.contractError(res, 'server', 'We could not complete your request. Please try again later.', 500);
     }
   })
 );

@@ -86,7 +86,10 @@ if (env.NODE_ENV === 'production') {
 // CORS — locked to the known frontend origin(s), never a wildcard when
 // credentials/auth headers are in play.
 // ---------------------------------------------------------------------
-const allowedOrigins = env.FRONTEND_URL.split(',').map((o) => o.trim()).filter(Boolean);
+const allowedOrigins = [
+  ...env.FRONTEND_URL.split(',').map((o) => o.trim()).filter(Boolean),
+  'https://housebank-frontend.vercel.app',
+];
 app.use(
   cors({
     origin(origin, callback) {

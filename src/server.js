@@ -31,6 +31,7 @@ const agentRoutes = require('./modules/agents/agents.routes');
 const leadRoutes = require('./modules/leads/leads.routes');
 const reportRoutes = require('./modules/reports/reports.routes');
 const reviewRoutes = require('./modules/reviews/reviews.routes');
+const wishlistRoutes = require('./modules/wishlist/wishlist.routes');
 
 const app = express();
 const isDebugMode = env.NODE_ENV !== 'production' || process.env.DEBUG === 'true';
@@ -139,6 +140,7 @@ app.use('/agents', agentRoutes);
 app.use('/leads', leadRoutes);
 app.use('/reports', reportRoutes);
 app.use('/reviews', reviewRoutes);
+app.use('/wishlist', wishlistRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

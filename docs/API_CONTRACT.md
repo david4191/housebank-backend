@@ -111,6 +111,12 @@ Partial update. **Editing an already-approved listing resets it to `pending`.**
 ### `DELETE /properties/:id` (protected — owner or admin)
 Soft delete.
 
+## Customer wishlist
+
+- `GET /wishlist/mine` — authenticated customer; returns their saved, currently approved properties with current listing details.
+- `POST /wishlist` — authenticated customer. Body: `{ property_id }`. Saves an approved property; duplicate saves are idempotent.
+- `DELETE /wishlist/:propertyId` — authenticated customer; removes that property from their wishlist.
+
 ---
 
 ## Admin — property approval

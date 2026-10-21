@@ -138,12 +138,19 @@ router.post(
       const otp = await OtpCode.generateAndStore(userId, 'signup_verification');
       const sent = await sendOtp(data.email, otp, 'verify your HouseBank account');
       if (!sent) {
-        throw new Error('Verification email delivery failed.');
+        logger.warning('Signup verification email failed; account remains pending', {
+          user_id: userId,
+          role,
+          ip: req.ip,
+        });
       }
 
       logger.security('New signup', { user_id: userId, role, ip: req.ip, company_id: role === 'agent' ? pendingInvite.company_id : undefined });
 
-      return response.created(res, { user_id: userId, email: data.email }, 'Account created. Please check your email for a verification code.');
+      const message = sent
+        ? 'Account created. Please check your email for a verification code.'
+        : 'Account created, but we could not send the verification email. Please request a new code later.';
+      return response.created(res, { user_id: userId, email: data.email }, message);
     } catch (err) {
       if (userId) {
         try {

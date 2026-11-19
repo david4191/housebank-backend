@@ -120,17 +120,11 @@ async function sendOtp(toEmail, code, purposeLabel) {
     </div>`;
   const sent = await sendMail(toEmail, subject, html);
   if (!sent) {
-    // Safety net: sendMail() already logs *why* it failed (bad creds, host
-    // unreachable, TLS/port mismatch — see the "Greeting never received"
-    // case this project hit during local setup). Without this, a real
-    // delivery failure (SMTP OR Brevo) silently loses the code forever —
-    // the account holder has no way to ever receive it, and re-requesting
-    // hits the same broken transport again. This does NOT weaken
-    // verification: a real, single-use code is still required — it only
-    // makes that code recoverable from the server's own log file when
-    // delivery itself is broken, which only whoever already has
-    // server/log access can read (nobody over the network).
-    logger.warning(`OTP email failed to send — code for ${toEmail} (${purposeLabel}): ${code}`);
+    logger.warning('OTP email failed to send', {
+      to: toEmail,
+      purpose: purposeLabel,
+      ...(env.NODE_ENV === 'production' ? {} : { code }),
+    });
   }
   return sent;
 }

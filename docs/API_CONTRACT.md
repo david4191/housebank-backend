@@ -48,8 +48,10 @@ stored `refreshToken` to get a new pair without forcing re-login.
 file is attached.
 
 Response `201`: `{ user_id, email }`. Does not log the user in — an OTP
-is emailed first (or logged to `storage/logs/app.log` in development
-when `SMTP_HOST` isn't configured).
+email is attempted, and the response message indicates whether sending
+succeeded. In non-production environments, a failed send may also log
+the code for local testing; production logs never contain OTP values.
+Configure a mail provider before deploying (see `docs/DEPLOYMENT.md`).
 
 ### `POST /auth/verify-otp`
 Body: `{ userId, code }` — 6-digit code, expires in 10 minutes.

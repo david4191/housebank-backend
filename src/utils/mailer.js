@@ -4,10 +4,9 @@ const { env } = require('../config/env');
 const { logger } = require('./logger');
 
 /**
- * Two interchangeable email transports, selected by MAIL_DRIVER in
- * .env ('smtp', the default, or 'brevo'). Every call site still just
- * calls sendMail()/sendOtp() below — neither knows or cares which
- * transport is actually sending.
+ * Brevo is selected whenever BREVO_API_KEY is set; SMTP is used only
+ * when no Brevo key is configured. Every call site uses sendMail() or
+ * sendOtp() without needing to know which transport is active.
  *
  * SMTP via nodemailer: on Namecheap cPanel, the simplest setup is to
  * create a mailbox (cPanel → Email Accounts) for your domain and point
@@ -23,11 +22,16 @@ const { logger } = require('./logger');
  * there's no SMTP handshake/login to get wrong, which is exactly the
  * class of problem (`535 Incorrect authentication data`) that's been
  * blocking real signups on the SMTP path. Uses Node's built-in fetch
- * (Node 18+, no new dependency). To switch: set MAIL_DRIVER=brevo and
- * BREVO_API_KEY in .env — SMTP_FROM_EMAIL/SMTP_FROM_NAME are reused as
- * the sender identity for both drivers, so nothing else needs to change.
+ * (Node 18+, no new dependency). Set BREVO_API_KEY and the verified
+ * BREVO_SENDER_EMAIL identity in .env.
  */
 let transporterPromise = null;
+
+function maskEmail(email) {
+  const [localPart, domain] = String(email).split('@');
+  if (!localPart || !domain) return '[invalid-email]';
+  return `${localPart[0]}***@${domain}`;
+}
 
 async function getSmtpTransporter() {
   if (transporterPromise) return transporterPromise;
@@ -55,15 +59,19 @@ async function sendViaSmtp(toEmail, subject, html) {
     return false;
   }
   try {
-    await t.sendMail({
+    const info = await t.sendMail({
       from: `"${env.SMTP_FROM_NAME}" <${env.SMTP_FROM_EMAIL}>`,
       to: toEmail,
       subject,
       html,
     });
+    logger.info('SMTP accepted email request', {
+      recipient: maskEmail(toEmail),
+      message_id: info.messageId,
+    });
     return true;
   } catch (err) {
-    logger.error('Failed to send email via SMTP', { to: toEmail, error: err.message });
+    logger.error('Failed to send email via SMTP', { to: maskEmail(toEmail), error: err.message });
     return false;
   }
 }
@@ -71,6 +79,12 @@ async function sendViaSmtp(toEmail, subject, html) {
 async function sendViaBrevo(toEmail, subject, html) {
   if (!env.BREVO_API_KEY) {
     logger.warning('BREVO_API_KEY not configured — emails will be logged, not sent.');
+    return false;
+  }
+  if (!env.BREVO_SENDER_EMAIL) {
+    logger.error('BREVO_SENDER_EMAIL is not configured — Brevo cannot send email.', {
+      recipient: maskEmail(toEmail),
+    });
     return false;
   }
   try {
@@ -82,7 +96,7 @@ async function sendViaBrevo(toEmail, subject, html) {
         Accept: 'application/json',
       },
       body: JSON.stringify({
-        sender: { name: env.SMTP_FROM_NAME, email: env.SMTP_FROM_EMAIL },
+        sender: { name: env.BREVO_SENDER_NAME, email: env.BREVO_SENDER_EMAIL },
         to: [{ email: toEmail }],
         subject,
         htmlContent: html,
@@ -92,15 +106,32 @@ async function sendViaBrevo(toEmail, subject, html) {
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '');
       logger.error('Failed to send email via Brevo', {
-        to: toEmail,
+        to: maskEmail(toEmail),
         status: res.status,
         body: bodyText.slice(0, 500),
       });
       return false;
     }
+
+    let messageId;
+    try {
+      const body = await res.json();
+      messageId = body.messageId;
+    } catch (err) {
+      logger.warning('Brevo accepted email but returned an unreadable response body', {
+        to: maskEmail(toEmail),
+        status: res.status,
+        error: err.message,
+      });
+    }
+    logger.info('Brevo accepted email request', {
+      recipient: maskEmail(toEmail),
+      status: res.status,
+      message_id: messageId,
+    });
     return true;
   } catch (err) {
-    logger.error('Failed to send email via Brevo', { to: toEmail, error: err.message });
+    logger.error('Failed to send email via Brevo', { to: maskEmail(toEmail), error: err.message });
     return false;
   }
 }
@@ -109,7 +140,15 @@ async function sendMail(toEmail, subject, html) {
   return env.MAIL_DRIVER === 'brevo' ? sendViaBrevo(toEmail, subject, html) : sendViaSmtp(toEmail, subject, html);
 }
 
-async function sendOtp(toEmail, code, purposeLabel) {
+async function sendOtp(toEmail, code, purposeLabel, metadata = {}) {
+  const logContext = {
+    user_id: metadata.userId,
+    purpose: metadata.purpose || purposeLabel,
+    recipient: maskEmail(toEmail),
+    mail_driver: env.MAIL_DRIVER,
+  };
+  logger.info('OTP email dispatch started', logContext);
+
   const subject = 'Your HouseBank verification code';
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto;">
@@ -118,13 +157,18 @@ async function sendOtp(toEmail, code, purposeLabel) {
       <p style="font-size: 32px; font-weight: bold; letter-spacing: 8px; background:#f4f4f4; padding: 16px; text-align:center; border-radius:8px;">${code}</p>
       <p style="color:#666; font-size: 13px;">If you didn't request this, you can safely ignore this email — no one can access your account without this code.</p>
     </div>`;
-  const sent = await sendMail(toEmail, subject, html);
-  if (!sent) {
-    logger.warning('OTP email failed to send', {
-      to: toEmail,
-      purpose: purposeLabel,
-      ...(env.NODE_ENV === 'production' ? {} : { code }),
-    });
+  let sent;
+  try {
+    sent = await sendMail(toEmail, subject, html);
+  } catch (err) {
+    logger.error('OTP email dispatch threw an error', { ...logContext, error: err.message });
+    throw err;
+  }
+
+  if (sent) {
+    logger.info('OTP email accepted by mail transport', logContext);
+  } else {
+    logger.warning('OTP email was not accepted by mail transport', logContext);
   }
   return sent;
 }
@@ -143,6 +187,10 @@ async function verifyMailTransport() {
   if (env.MAIL_DRIVER === 'brevo') {
     if (!env.BREVO_API_KEY) {
       logger.warning('Mail transport: MAIL_DRIVER=brevo but BREVO_API_KEY is not set -- emails will not send.');
+      return;
+    }
+    if (!env.BREVO_SENDER_EMAIL) {
+      logger.error('Mail transport: BREVO_SENDER_EMAIL is not configured -- Brevo emails will not send.');
       return;
     }
     try {

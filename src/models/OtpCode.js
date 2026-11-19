@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { pool } = require('../config/db');
+const { logger } = require('../utils/logger');
 
 /**
  * One-time passcodes for signup verification, password reset, etc. The
@@ -11,25 +12,36 @@ const { pool } = require('../config/db');
  * still-valid OTP.
  */
 async function generateAndStore(userId, purpose, ttlMinutes = 10) {
-  // 6-digit numeric code, cryptographically random (crypto.randomInt,
-  // never Math.random for anything security-sensitive).
-  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-  const codeHash = await bcrypt.hash(code, 10);
+  logger.info('OTP generation and storage started', { user_id: userId, purpose, ttl_minutes: ttlMinutes });
+  try {
+    // 6-digit numeric code, cryptographically random (crypto.randomInt,
+    // never Math.random for anything security-sensitive).
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    const codeHash = await bcrypt.hash(code, 10);
 
-  // Invalidate any previous unconsumed codes for the same purpose so
-  // only the newest one is ever valid.
-  await pool.execute(
-    'UPDATE otp_codes SET consumed_at = NOW() WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL',
-    [userId, purpose]
-  );
+    // Invalidate any previous unconsumed codes for the same purpose so
+    // only the newest one is ever valid.
+    await pool.execute(
+      'UPDATE otp_codes SET consumed_at = NOW() WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL',
+      [userId, purpose]
+    );
 
-  await pool.execute(
-    `INSERT INTO otp_codes (user_id, code_hash, purpose, expires_at)
-     VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
-    [userId, codeHash, purpose, ttlMinutes]
-  );
+    await pool.execute(
+      `INSERT INTO otp_codes (user_id, code_hash, purpose, expires_at)
+       VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
+      [userId, codeHash, purpose, ttlMinutes]
+    );
 
-  return code;
+    logger.info('OTP generated and stored', { user_id: userId, purpose, ttl_minutes: ttlMinutes });
+    return code;
+  } catch (err) {
+    logger.error('OTP generation or storage failed', {
+      user_id: userId,
+      purpose,
+      error: err.message,
+    });
+    throw err;
+  }
 }
 
 /**

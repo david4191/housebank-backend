@@ -72,9 +72,11 @@ so you don't lose track of what's set where):
   (comma-separate multiple origins if needed)
 - Mail delivery (required for email OTPs). Choose one provider and set
   its values in cPanel's **Environment Variables**:
-  - **Brevo**: set `MAIL_DRIVER=brevo`, `BREVO_API_KEY` to a Brevo
-    transactional-email API key, and `SMTP_FROM_EMAIL`/`SMTP_FROM_NAME`
-    to a sender verified in Brevo.
+  - **Brevo API**: set `BREVO_API_KEY` and `BREVO_SENDER_EMAIL` to a
+    sender address verified in Brevo. Optionally set
+    `BREVO_SENDER_NAME` (defaults to `HouseBank`). When the API key is
+    present, it takes precedence over `MAIL_DRIVER` and all SMTP values;
+    no SMTP credentials are needed.
   - **cPanel SMTP**: create a mailbox under **Email Accounts** and use
     the exact settings shown under **Connect Devices**:
     `MAIL_DRIVER=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`,
@@ -82,11 +84,28 @@ so you don't lose track of what's set where):
     `SMTP_FROM_EMAIL` (a sender accepted by that mailbox's provider).
     Typically port 465 uses `SMTP_SECURE=true`; port 587 uses
     `SMTP_SECURE=false`.
+- For a `.env`-file deployment using Brevo, the mail-specific entries
+  look like this:
+
+  ```dotenv
+  BREVO_API_KEY=your_brevo_transactional_api_key
+  BREVO_SENDER_EMAIL=no-reply@your-verified-domain.com
+  BREVO_SENDER_NAME=HouseBank
+  ```
+
 - After saving mail settings, restart the Node.js app. Check its startup
-  logs for `SMTP connection and login verified OK` (SMTP) or
-  `Brevo API key verified OK` (Brevo). Missing configuration, rejected
-  credentials, or an unverified sender means OTP emails will not be
-  delivered. Do not put provider credentials in source control.
+  logs for `Brevo API key verified OK` (Brevo) or
+  `SMTP connection and login verified OK` (SMTP). Missing configuration,
+  rejected credentials, or a sender not verified in Brevo means OTP
+  emails will not be delivered. Do not put provider credentials in
+  source control.
+- OTP diagnostics are written to `storage/logs/app.log`. Look for
+  `OTP generation and storage started`, `OTP generated and stored`,
+  `OTP email dispatch started`, and `Brevo accepted email request`.
+  Brevo rejection entries include the HTTP status and response details;
+  an accepted API request is not proof of inbox delivery, so check the
+  Brevo transactional logs using the logged message ID. OTP values and
+  API keys are never written to these diagnostics.
 - Paystack keys, when you get to that module (see `docs/ROADMAP.md`)
 
 `PORT` is set automatically by cPanel/Passenger — don't override it.

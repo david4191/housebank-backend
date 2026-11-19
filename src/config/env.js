@@ -38,16 +38,14 @@ const env = {
   SMTP_PASS: process.env.SMTP_PASS || '',
   SMTP_FROM_EMAIL: process.env.SMTP_FROM_EMAIL || 'no-reply@housebank.local',
   SMTP_FROM_NAME: process.env.SMTP_FROM_NAME || 'HouseBank',
+  BREVO_SENDER_EMAIL: (process.env.BREVO_SENDER_EMAIL || process.env.SMTP_FROM_EMAIL || '').trim(),
+  BREVO_SENDER_NAME: process.env.BREVO_SENDER_NAME || process.env.SMTP_FROM_NAME || 'HouseBank',
 
-  // Prefer Brevo whenever a key is present; keep SMTP only as an explicit
-  // fallback or when no Brevo key is configured. This keeps the app working
-  // for existing SMTP setups while making the Brevo API the default for
-  // the current setup using BREVO_API_KEY in .env.
   BREVO_API_KEY: (process.env.BREVO_API_KEY || '').trim(),
   MAIL_DRIVER: (() => {
     const driver = (process.env.MAIL_DRIVER || '').toLowerCase().trim();
-    if (driver === 'smtp') return 'smtp';
-    if (driver === 'brevo' || (process.env.BREVO_API_KEY || '').trim()) return 'brevo';
+    if ((process.env.BREVO_API_KEY || '').trim()) return 'brevo';
+    if (driver === 'brevo') return 'brevo';
     return 'smtp';
   })(),
 

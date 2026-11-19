@@ -136,7 +136,10 @@ router.post(
       }
 
       const otp = await OtpCode.generateAndStore(userId, 'signup_verification');
-      const sent = await sendOtp(data.email, otp, 'verify your HouseBank account');
+      const sent = await sendOtp(data.email, otp, 'verify your HouseBank account', {
+        userId,
+        purpose: 'signup_verification',
+      });
       if (!sent) {
         logger.warning('Signup verification email failed; account remains pending', {
           user_id: userId,
@@ -226,7 +229,10 @@ router.post(
     if (!user) return response.success(res, null, 'If the account exists, a new code has been sent.');
 
     const otp = await OtpCode.generateAndStore(userId, req.body.purpose);
-    await sendOtp(user.email, otp, 'verify your HouseBank account');
+    await sendOtp(user.email, otp, 'verify your HouseBank account', {
+      userId,
+      purpose: req.body.purpose,
+    });
 
     return response.success(res, null, 'If the account exists, a new code has been sent.');
   })
@@ -283,7 +289,10 @@ router.post(
     const twoFactorEnabled = await TwoFactor.isEnabled(user.id);
     if (twoFactorEnabled) {
       const otp = await OtpCode.generateAndStore(user.id, 'login_2fa');
-      await sendOtp(user.email, otp, 'sign in to your HouseBank account');
+      await sendOtp(user.email, otp, 'sign in to your HouseBank account', {
+        userId: user.id,
+        purpose: 'login_2fa',
+      });
       const pendingToken = signPendingTwoFactorToken({ sub: user.id });
       logger.security('Password verified, 2FA code emailed', { user_id: user.id, ip: req.ip });
       return response.success(
@@ -408,7 +417,10 @@ router.post(
     }
 
     const otp = await OtpCode.generateAndStore(user.id, 'login_2fa');
-    await sendOtp(user.email, otp, 'confirm a change to two-factor authentication on your HouseBank account');
+    await sendOtp(user.email, otp, 'confirm a change to two-factor authentication on your HouseBank account', {
+      userId: user.id,
+      purpose: 'login_2fa',
+    });
 
     return response.success(res, null, 'A code has been sent to your email.');
   })
@@ -597,7 +609,10 @@ router.post(
     const user = await User.findByEmail(String(req.body.email));
     if (user) {
       const otp = await OtpCode.generateAndStore(user.id, 'password_reset');
-      await sendOtp(user.email, otp, 'reset your HouseBank password');
+      await sendOtp(user.email, otp, 'reset your HouseBank password', {
+        userId: user.id,
+        purpose: 'password_reset',
+      });
     }
 
     return response.success(res, null, 'If that email is registered, a reset code has been sent.');
